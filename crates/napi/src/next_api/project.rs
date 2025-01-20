@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc, thread, time::Duration};
 
 use anyhow::{anyhow, bail, Context, Result};
+use indexmap::IndexSet;
 use napi::{
     bindgen_prelude::{within_runtime_if_available, External},
     threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
@@ -15,7 +16,7 @@ use next_api::{
         DefineEnv, DraftModeOptions, PartialProjectOptions, Project, ProjectContainer,
         ProjectOptions, WatchOptions,
     },
-    route::Endpoint,
+    route::{Endpoint, Route},
 };
 use next_core::tracing_presets::{
     TRACING_NEXT_OVERVIEW_TARGETS, TRACING_NEXT_TARGETS, TRACING_NEXT_TURBOPACK_TARGETS,
@@ -39,6 +40,7 @@ use turbopack_core::{
     diagnostics::PlainDiagnostic,
     error::PrettyPrintError,
     issue::PlainIssue,
+    output::{OutputAsset, OutputAssets},
     source_map::{SourceMap, Token},
     version::{PartialUpdate, TotalUpdate, Update, VersionState},
     SOURCE_MAP_PREFIX,
@@ -55,8 +57,8 @@ use url::Url;
 use super::{
     endpoint::ExternalEndpoint,
     utils::{
-        create_turbo_tasks, get_diagnostics, get_issues, subscribe, NapiDiagnostic, NapiIssue,
-        NextTurboTasks, RootTask, TurbopackResult, VcArc,
+        create_turbo_tasks, get_diagnostics, get_issues, strongly_consistent_catch_collectables,
+        subscribe, NapiDiagnostic, NapiIssue, NextTurboTasks, RootTask, TurbopackResult, VcArc,
     },
 };
 use crate::{register, util::DhatProfilerGuard};
@@ -710,6 +712,115 @@ fn project_container_entrypoints_operation(
     container: ResolvedVc<ProjectContainer>,
 ) -> Vc<Entrypoints> {
     container.entrypoints()
+}
+
+#[turbo_tasks::value(serialization = "none")]
+struct AllWrittenEndpointsWithIssues {
+    issues: Arc<Vec<ReadRef<PlainIssue>>>,
+    diagnostics: Arc<Vec<ReadRef<PlainDiagnostic>>>,
+    effects: Arc<Effects>,
+}
+
+#[napi(ts_return_type = "{ __napiType: \"RootTask\" }")]
+pub async fn project_write_all_endpoints_to_disk(
+    #[napi(ts_arg_type = "{ __napiType: \"Project\" }")] project: External<ProjectInstance>,
+) -> napi::Result<TurbopackResult<()>> {
+    let turbo_tasks = project.turbo_tasks.clone();
+    let (issues, diags) = turbo_tasks
+        .run_once(async move {
+            let written_entrypoint_with_issues_op = get_all_written_endpoints_with_issues_operation(
+                project.container.to_resolved().await?,
+            );
+
+            let AllWrittenEndpointsWithIssues {
+                issues,
+                diagnostics,
+                effects,
+            } = &*written_entrypoint_with_issues_op
+                .read_strongly_consistent()
+                .await?;
+            effects.apply().await?;
+
+            Ok((issues.clone(), diagnostics.clone()))
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(PrettyPrintError(&e).to_string()))?;
+
+    Ok(TurbopackResult {
+        result: (),
+        issues: issues.iter().map(|i| NapiIssue::from(&**i)).collect(),
+        diagnostics: diags.iter().map(|d| NapiDiagnostic::from(d)).collect(),
+    })
+}
+
+#[turbo_tasks::function(operation)]
+async fn get_all_written_endpoints_with_issues_operation(
+    container: ResolvedVc<ProjectContainer>,
+) -> Result<Vc<AllWrittenEndpointsWithIssues>> {
+    let write_to_disk_op = all_endpoints_write_to_disk_operation(container);
+    let (_, issues, diagnostics, effects) =
+        strongly_consistent_catch_collectables(write_to_disk_op).await?;
+    Ok(AllWrittenEndpointsWithIssues {
+        issues,
+        diagnostics,
+        effects,
+    }
+    .cell())
+}
+
+#[turbo_tasks::function(operation)]
+pub fn all_endpoints_write_to_disk_operation(project: ResolvedVc<ProjectContainer>) -> Vc<()> {
+    all_endpoints_write_to_disk(*project)
+}
+
+#[turbo_tasks::function]
+pub async fn all_endpoints_write_to_disk(project: ResolvedVc<ProjectContainer>) -> Result<Vc<()>> {
+    let mut output_assets: IndexSet<ResolvedVc<Box<dyn OutputAsset>>> = IndexSet::new();
+
+    let entrypoints = &*project.entrypoints().await?;
+    for route in entrypoints.routes.values() {
+        match route {
+            Route::Page {
+                html_endpoint,
+                data_endpoint,
+            } => {
+                output_assets.extend(html_endpoint.output().await?.output_assets.await?);
+                output_assets.extend(data_endpoint.output().await?.output_assets.await?);
+            }
+            Route::PageApi { endpoint } => {
+                output_assets.extend(endpoint.output().await?.output_assets.await?);
+            }
+            Route::AppPage(pages) => {
+                for page in pages {
+                    output_assets.extend(page.html_endpoint.output().await?.output_assets.await?);
+                    output_assets.extend(page.html_endpoint.output().await?.output_assets.await?);
+                }
+            }
+            Route::AppRoute { endpoint, .. } => {
+                output_assets.extend(endpoint.output().await?.output_assets.await?);
+            }
+            Route::Conflict => {}
+        }
+    }
+
+    let output_assets_op = output_assets_operation(ResolvedVc::cell(
+        output_assets.iter().copied().collect::<Vec<_>>(),
+    ));
+    let output_assets = output_assets_op.connect();
+    let _ = output_assets.resolve().await?;
+
+    let _ = project
+        .project()
+        .emit_all_output_assets(output_assets_op)
+        .resolve()
+        .await?;
+
+    Ok(Vc::cell(()))
+}
+
+#[turbo_tasks::function(operation)]
+fn output_assets_operation(output_assets: ResolvedVc<OutputAssets>) -> Vc<OutputAssets> {
+    *output_assets
 }
 
 #[napi(ts_return_type = "{ __napiType: \"RootTask\" }")]
