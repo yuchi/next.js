@@ -586,6 +586,18 @@ function bindingToApi(
       )
     }
 
+    async writeAllEndpointsToDisk(
+      appDirOnly: boolean
+    ): Promise<TurbopackResult<void>> {
+      return await withErrorCause(
+        () =>
+          binding.projectWriteAllEndpointsToDisk(
+            this._nativeProject,
+            appDirOnly
+          ) as Promise<TurbopackResult<void>>
+      )
+    }
+
     entrypointsSubscribe() {
       type NapiEndpoint = { __napiType: 'Endpoint' }
 

@@ -721,15 +721,17 @@ struct AllWrittenEndpointsWithIssues {
     effects: Arc<Effects>,
 }
 
-#[napi(ts_return_type = "{ __napiType: \"RootTask\" }")]
+#[napi]
 pub async fn project_write_all_endpoints_to_disk(
     #[napi(ts_arg_type = "{ __napiType: \"Project\" }")] project: External<ProjectInstance>,
+    app_dir_only: bool,
 ) -> napi::Result<TurbopackResult<()>> {
     let turbo_tasks = project.turbo_tasks.clone();
     let (issues, diags) = turbo_tasks
         .run_once(async move {
             let written_entrypoint_with_issues_op = get_all_written_endpoints_with_issues_operation(
                 project.container.to_resolved().await?,
+                ResolvedVc::cell(app_dir_only),
             );
 
             let AllWrittenEndpointsWithIssues {
@@ -756,8 +758,9 @@ pub async fn project_write_all_endpoints_to_disk(
 #[turbo_tasks::function(operation)]
 async fn get_all_written_endpoints_with_issues_operation(
     container: ResolvedVc<ProjectContainer>,
+    app_dir_only: ResolvedVc<bool>,
 ) -> Result<Vc<AllWrittenEndpointsWithIssues>> {
-    let write_to_disk_op = all_endpoints_write_to_disk_operation(container);
+    let write_to_disk_op = all_endpoints_write_to_disk_operation(container, app_dir_only);
     let (_, issues, diagnostics, effects) =
         strongly_consistent_catch_collectables(write_to_disk_op).await?;
     Ok(AllWrittenEndpointsWithIssues {
@@ -769,13 +772,20 @@ async fn get_all_written_endpoints_with_issues_operation(
 }
 
 #[turbo_tasks::function(operation)]
-pub fn all_endpoints_write_to_disk_operation(project: ResolvedVc<ProjectContainer>) -> Vc<()> {
-    all_endpoints_write_to_disk(*project)
+pub fn all_endpoints_write_to_disk_operation(
+    project: ResolvedVc<ProjectContainer>,
+    app_dir_only: ResolvedVc<bool>,
+) -> Vc<()> {
+    all_endpoints_write_to_disk(*project, *app_dir_only)
 }
 
 #[turbo_tasks::function]
-pub async fn all_endpoints_write_to_disk(project: ResolvedVc<ProjectContainer>) -> Result<Vc<()>> {
+pub async fn all_endpoints_write_to_disk(
+    project: ResolvedVc<ProjectContainer>,
+    app_dir_only: ResolvedVc<bool>,
+) -> Result<Vc<()>> {
     let mut output_assets: IndexSet<ResolvedVc<Box<dyn OutputAsset>>> = IndexSet::new();
+    let app_dir_only = *app_dir_only.await?;
 
     let entrypoints = &*project.entrypoints().await?;
     for route in entrypoints.routes.values() {
@@ -784,10 +794,18 @@ pub async fn all_endpoints_write_to_disk(project: ResolvedVc<ProjectContainer>) 
                 html_endpoint,
                 data_endpoint,
             } => {
+                if app_dir_only {
+                    continue;
+                }
+
                 output_assets.extend(html_endpoint.output().await?.output_assets.await?);
                 output_assets.extend(data_endpoint.output().await?.output_assets.await?);
             }
             Route::PageApi { endpoint } => {
+                if app_dir_only {
+                    continue;
+                }
+
                 output_assets.extend(endpoint.output().await?.output_assets.await?);
             }
             Route::AppPage(pages) => {
