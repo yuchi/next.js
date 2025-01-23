@@ -9,11 +9,11 @@ import {
 } from 'next-test-utils'
 import stripAnsi from 'strip-ansi'
 
-const nextConfigWithDynamicIO: NextConfig = {
-  experimental: { dynamicIO: true },
+const nextConfigWithUseCache: NextConfig = {
+  experimental: { useCache: true },
 }
 
-describe('use-cache-without-dynamic-io', () => {
+describe('use-cache-without-experimental-flag', () => {
   const { next, isNextStart, isTurbopack, skipped } = nextTestSetup({
     files: __dirname,
     skipStart: process.env.NEXT_TEST_MODE !== 'dev',
@@ -52,26 +52,26 @@ describe('use-cache-without-dynamic-io', () => {
         `)
       } else {
         expect(buildOutput).toMatchInlineSnapshot(`
-          "
-          ./app/page.tsx
-          Error:   x To use "use cache", please enable the experimental feature flag "dynamicIO" in your Next.js config.
-            | 
-            | Read more: https://nextjs.org/docs/canary/app/api-reference/directives/use-cache#usage
-            | 
-             ,-[1:1]
-           1 | 'use cache'
-             : ^^^^^^^^^^^
-           2 | 
-           3 | export default async function Page() {
-           4 |   return <p>hello world</p>
-             \`----
+         "
+         ./app/page.tsx
+         Error:   x To use "use cache", please enable the experimental feature flag "useCache" in your Next.js config.
+           | 
+           | Read more: https://nextjs.org/docs/canary/app/api-reference/directives/use-cache#usage
+           | 
+            ,-[1:1]
+          1 | 'use cache'
+            : ^^^^^^^^^^^
+          2 | 
+          3 | export default async function Page() {
+          4 |   return <p>hello world</p>
+            \`----
 
-          Import trace for requested module:
-          ./app/page.tsx
+         Import trace for requested module:
+         ./app/page.tsx
 
 
-          > Build failed because of webpack errors
-          "
+         > Build failed because of webpack errors
+         "
         `)
       }
     })
@@ -102,30 +102,30 @@ describe('use-cache-without-dynamic-io', () => {
         `)
       } else {
         expect(errorSource).toMatchInlineSnapshot(`
-          "./app/page.tsx
-          Error:   x To use "use cache", please enable the experimental feature flag "dynamicIO" in your Next.js config.
-            | 
-            | Read more: https://nextjs.org/docs/canary/app/api-reference/directives/use-cache#usage
-            | 
-             ,-[1:1]
-           1 | 'use cache'
-             : ^^^^^^^^^^^
-           2 | 
-           3 | export default async function Page() {
-           4 |   return <p>hello world</p>
-             \`----"
+         "./app/page.tsx
+         Error:   x To use "use cache", please enable the experimental feature flag "useCache" in your Next.js config.
+           | 
+           | Read more: https://nextjs.org/docs/canary/app/api-reference/directives/use-cache#usage
+           | 
+            ,-[1:1]
+          1 | 'use cache'
+            : ^^^^^^^^^^^
+          2 | 
+          3 | export default async function Page() {
+          4 |   return <p>hello world</p>
+            \`----"
         `)
       }
     })
 
-    it('should recover from the build error if dynamicIO flag is set', async () => {
+    it('should recover from the build error if useCache flag is set', async () => {
       const browser = await next.browser('/')
 
       await assertHasRedbox(browser)
 
       await next.patchFile(
         'next.config.js',
-        `module.exports = ${JSON.stringify(nextConfigWithDynamicIO)}`,
+        `module.exports = ${JSON.stringify(nextConfigWithUseCache)}`,
         () =>
           retry(async () => {
             expect(await browser.elementByCss('p').text()).toBe('hello world')
