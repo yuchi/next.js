@@ -352,19 +352,17 @@ function InnerLayoutRouter({
   // We use `useDeferredValue` to handle switching between the prefetched and
   // final values. The second argument is returned on initial render, then it
   // re-renders with the first argument.
-  //
-  // @ts-expect-error The second argument to `useDeferredValue` is only
-  // available in the experimental builds. When its disabled, it will always
-  // return `rsc`.
-  const rsc: any = useDeferredValue(cacheNode.rsc, resolvedPrefetchRsc)
+  const rsc = useDeferredValue(cacheNode.rsc, resolvedPrefetchRsc)
 
   // `rsc` is either a React node or a promise for a React node, except we
   // special case `null` to represent that this segment's data is missing. If
   // it's a promise, we need to unwrap it so we can determine whether or not the
   // data is missing.
   const resolvedRsc: React.ReactNode =
-    typeof rsc === 'object' && rsc !== null && typeof rsc.then === 'function'
-      ? use(rsc)
+    typeof rsc === 'object' &&
+    rsc !== null &&
+    typeof (rsc as any).then === 'function'
+      ? use(rsc as Promise<React.ReactNode>)
       : rsc
 
   if (!resolvedRsc) {
