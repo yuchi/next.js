@@ -43,11 +43,11 @@ pub struct GlobalModuleIdStrategy {
 impl ModuleIdStrategy for GlobalModuleIdStrategy {
     #[turbo_tasks::function]
     async fn get_module_id(&self, ident: ResolvedVc<AssetIdent>) -> Result<Vc<ModuleId>> {
-        let ident_string = ident.to_string().await?;
         if let Some(module_id) = self.module_id_map.get(&ident) {
             return Ok(ModuleId::Number(*module_id).cell());
         }
 
+        let ident_string = ident.to_string().await?;
         if !ident_string.ends_with("[app-client] (ecmascript, next/dynamic entry)") {
             // TODO: This shouldn't happen, but is a temporary workaround to ignore next/dynamic
             // imports of a server component from another server component.

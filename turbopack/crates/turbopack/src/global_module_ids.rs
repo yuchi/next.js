@@ -1,6 +1,9 @@
+use std::{collections::HashSet, hash::BuildHasherDefault};
+
 use anyhow::{Context, Result};
+use rustc_hash::FxHasher;
 use tracing::Instrument;
-use turbo_tasks::{FxIndexMap, FxIndexSet, ResolvedVc, TryJoinIterExt, ValueToString, Vc};
+use turbo_tasks::{FxIndexMap, ResolvedVc, TryJoinIterExt, ValueToString, Vc};
 use turbo_tasks_hash::hash_xxh3_hash64;
 use turbopack_core::{
     chunk::{module_id_strategies::GlobalModuleIdStrategy, ChunkableModule, ChunkingType},
@@ -17,33 +20,32 @@ pub async fn get_global_module_id_strategy(
     let span = tracing::info_span!("compute module id map");
     async move {
         let module_graph = module_graph.await?;
-        let mut idents = module_graph
-            .graphs
-            .iter()
-            .try_join()
-            .await?
+        let graphs = module_graph.graphs.iter().try_join().await?;
+
+        // All modules in the graph
+        let module_idents = graphs
             .iter()
             .flat_map(|graph| graph.iter_nodes())
-            .map(|m| m.module.ident().to_resolved())
-            .collect::<Vec<_>>();
+            .map(|m| m.module.ident());
 
-        // Additionally, add all the modules that are inserted by chunking (i.e. async loaders)
+        // And additionally, all the modules that are inserted by chunking (i.e. async loaders)
+        let mut async_idents = vec![];
         module_graph
             .traverse_all_edges_unordered(|parent, current| {
                 if let (_, &ChunkingType::Async) = parent {
                     let module =
                         ResolvedVc::try_sidecast_sync::<Box<dyn ChunkableModule>>(current.module)
                             .context("expected chunkable module for async reference")?;
-                    idents.push(AsyncLoaderModule::asset_ident_for(*module).to_resolved());
+                    async_idents.push(AsyncLoaderModule::asset_ident_for(*module));
                 }
                 Ok(())
             })
             .await?;
 
-        let mut module_id_map = idents
-            .into_iter()
+        let mut module_id_map = module_idents
+            .chain(async_idents.into_iter())
             .map(|ident| async move {
-                let ident = ident.await?;
+                let ident = ident.to_resolved().await?;
                 Ok((ident, hash_xxh3_hash64(&ident.to_string().await?)))
             })
             .try_join()
@@ -51,7 +53,7 @@ pub async fn get_global_module_id_strategy(
             .into_iter()
             .collect::<FxIndexMap<_, _>>();
 
-        merge_preprocessed_module_ids(&mut module_id_map);
+        finalize_module_ids(&mut module_id_map);
 
         Ok(GlobalModuleIdStrategy { module_id_map }.cell())
     }
@@ -61,9 +63,8 @@ pub async fn get_global_module_id_strategy(
 
 const JS_MAX_SAFE_INTEGER: u64 = (1u64 << 53) - 1;
 
-pub fn merge_preprocessed_module_ids(
-    merged_module_ids: &mut FxIndexMap<ResolvedVc<AssetIdent>, u64>,
-) {
+/// Shorten hashes and handle any collisions.
+fn finalize_module_ids(merged_module_ids: &mut FxIndexMap<ResolvedVc<AssetIdent>, u64>) {
     // 5% fill rate, as done in Webpack
     // https://github.com/webpack/webpack/blob/27cf3e59f5f289dfc4d76b7a1df2edbc4e651589/lib/ids/IdHelpers.js#L366-L405
     let optimal_range = merged_module_ids.len() * 20;
@@ -72,14 +73,14 @@ pub fn merge_preprocessed_module_ids(
         JS_MAX_SAFE_INTEGER,
     );
 
-    let mut used_ids = FxIndexSet::default();
+    let mut used_ids = HashSet::with_hasher(BuildHasherDefault::<FxHasher>::default());
     for full_hash in merged_module_ids.values_mut() {
         let mut trimmed_hash = *full_hash % digit_mask;
-        let mut i = 0;
+        let mut i = 1;
         while used_ids.contains(&trimmed_hash) {
-            i += 1;
             // If the id is already used, seek to find another available id.
             trimmed_hash = hash_xxh3_hash64(*full_hash + i) % digit_mask;
+            i += 1;
         }
         used_ids.insert(trimmed_hash);
         *full_hash = trimmed_hash;
