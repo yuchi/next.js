@@ -32,6 +32,7 @@ import type {
   HmrIdentifiers,
   Project,
   ProjectOptions,
+  RawEntrypoints,
   Route,
   TurboEngineOptions,
   TurbopackResult,
@@ -586,15 +587,15 @@ function bindingToApi(
       )
     }
 
-    async writeAllEndpointsToDisk(
+    async writeAllEntrypointsToDisk(
       appDirOnly: boolean
-    ): Promise<TurbopackResult<void>> {
+    ): Promise<TurbopackResult<RawEntrypoints>> {
       return await withErrorCause(
         () =>
-          binding.projectWriteAllEndpointsToDisk(
+          binding.projectWriteAllEntrypointsToDisk(
             this._nativeProject,
             appDirOnly
-          ) as Promise<TurbopackResult<void>>
+          ) as Promise<TurbopackResult<RawEntrypoints>>
       )
     }
 

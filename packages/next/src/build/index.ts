@@ -1437,8 +1437,7 @@ export default async function build(
           )
         )
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const entrypointsSubscription = project.entrypointsSubscribe()
+        const entrypoints = await project.writeAllEntrypointsToDisk(appDirOnly)
         const currentEntrypoints: Entrypoints = {
           global: {
             app: undefined,
@@ -1460,14 +1459,6 @@ export default async function build(
           distDir,
           encryptionKey,
         })
-
-        const entrypointsResult = await entrypointsSubscription.next()
-        if (entrypointsResult.done) {
-          throw new Error('Turbopack did not return any entrypoints')
-        }
-        entrypointsSubscription.return?.().catch(() => {})
-
-        const entrypoints = entrypointsResult.value
 
         const topLevelErrors: {
           message: string

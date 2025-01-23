@@ -715,26 +715,27 @@ fn project_container_entrypoints_operation(
 }
 
 #[turbo_tasks::value(serialization = "none")]
-struct AllWrittenEndpointsWithIssues {
+struct AllWrittenEntrypointsWithIssues {
     issues: Arc<Vec<ReadRef<PlainIssue>>>,
     diagnostics: Arc<Vec<ReadRef<PlainDiagnostic>>>,
     effects: Arc<Effects>,
 }
 
 #[napi]
-pub async fn project_write_all_endpoints_to_disk(
+pub async fn project_write_all_entrypoints_to_disk(
     #[napi(ts_arg_type = "{ __napiType: \"Project\" }")] project: External<ProjectInstance>,
     app_dir_only: bool,
 ) -> napi::Result<TurbopackResult<()>> {
     let turbo_tasks = project.turbo_tasks.clone();
     let (issues, diags) = turbo_tasks
         .run_once(async move {
-            let written_entrypoint_with_issues_op = get_all_written_endpoints_with_issues_operation(
-                project.container.to_resolved().await?,
-                ResolvedVc::cell(app_dir_only),
-            );
+            let written_entrypoint_with_issues_op =
+                get_all_written_entrypoints_with_issues_operation(
+                    project.container.to_resolved().await?,
+                    ResolvedVc::cell(app_dir_only),
+                );
 
-            let AllWrittenEndpointsWithIssues {
+            let AllWrittenEntrypointsWithIssues {
                 issues,
                 diagnostics,
                 effects,
@@ -756,14 +757,14 @@ pub async fn project_write_all_endpoints_to_disk(
 }
 
 #[turbo_tasks::function(operation)]
-async fn get_all_written_endpoints_with_issues_operation(
+async fn get_all_written_entrypoints_with_issues_operation(
     container: ResolvedVc<ProjectContainer>,
     app_dir_only: ResolvedVc<bool>,
-) -> Result<Vc<AllWrittenEndpointsWithIssues>> {
-    let write_to_disk_op = all_endpoints_write_to_disk_operation(container, app_dir_only);
+) -> Result<Vc<AllWrittenEntrypointsWithIssues>> {
+    let write_to_disk_op = all_entrypoints_write_to_disk_operation(container, app_dir_only);
     let (_, issues, diagnostics, effects) =
         strongly_consistent_catch_collectables(write_to_disk_op).await?;
-    Ok(AllWrittenEndpointsWithIssues {
+    Ok(AllWrittenEntrypointsWithIssues {
         issues,
         diagnostics,
         effects,
@@ -772,15 +773,15 @@ async fn get_all_written_endpoints_with_issues_operation(
 }
 
 #[turbo_tasks::function(operation)]
-pub fn all_endpoints_write_to_disk_operation(
+pub fn all_entrypoints_write_to_disk_operation(
     project: ResolvedVc<ProjectContainer>,
     app_dir_only: ResolvedVc<bool>,
 ) -> Vc<()> {
-    all_endpoints_write_to_disk(*project, *app_dir_only)
+    all_entrypoints_write_to_disk(*project, *app_dir_only)
 }
 
 #[turbo_tasks::function]
-pub async fn all_endpoints_write_to_disk(
+pub async fn all_entrypoints_write_to_disk(
     project: ResolvedVc<ProjectContainer>,
     app_dir_only: ResolvedVc<bool>,
 ) -> Result<Vc<()>> {

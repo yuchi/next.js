@@ -64,10 +64,6 @@ export async function handleEntrypoints({
   }
 
   const { middleware, instrumentation } = entrypoints
-
-  // We check for explicit true/false, since it's initialized to
-  // undefined during the first loop (middlewareChanges event is
-  // unnecessary during the first serve)
   if (currentEntrypoints.global.middleware && !middleware) {
     const key = getEntryKey('root', 'server', 'middleware')
     // Went from middleware to no middleware

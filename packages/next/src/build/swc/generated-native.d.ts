@@ -239,7 +239,7 @@ export interface NapiEntrypoints {
   pagesAppEndpoint: ExternalObject<ExternalEndpoint>
   pagesErrorEndpoint: ExternalObject<ExternalEndpoint>
 }
-export declare function projectWriteAllEndpointsToDisk(
+export declare function projectWriteAllEntrypointsToDisk(
   project: { __napiType: 'Project' },
   appDirOnly: boolean
 ): Promise<TurbopackResult>
